@@ -1,0 +1,6 @@
+[clip]
+vault = "~/obsidian/shijistar"
+destination = "Inbox"
+images = "images"
+sync_branch = "feature/web-to-obsidian-clip"
+# lock_file = "~/.local/state/web-to-obsidian/vault.lock"

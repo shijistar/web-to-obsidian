@@ -1,0 +1,5 @@
+name: web-to-obsidian
+version: 0.1.0
+description: "Safely clip public web articles into an Obsidian vault with guarded Git synchronization."
+platforms:
+  - linux
