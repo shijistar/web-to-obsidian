@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Secure Web Clipping Without Surprises</title>
+  <meta name="author" content="Ada Example">
+  <meta name="description" content="A practical guide to clipping articles without trusting the network.">
+  <meta name="keywords" content="security, clipping, obsidian">
+  <meta property="article:published_time" content="2026-07-20">
+  <meta property="og:site_name" content="Example Security Journal">
+  <link rel="canonical" href="/articles/secure-clipping?utm_campaign=launch#overview">
+</head>
+<body>
+  <header><nav>Home Products Subscribe Sign in</nav></header>
+  <main>
+    <article>
+      <h1>Secure Web Clipping Without Surprises</h1>
+      <p>Secure defaults reduce the attack surface when a clipping tool reads pages supplied by people, automations, or untrusted documents. Every destination must be treated as untrusted input, even when the first address looks harmless and familiar.</p>
+      <p>A strong <a href="/guides/network-policy">network policy</a> validates the scheme, hostname, resolved addresses, redirects, response type, and body size. It also pins an approved address to the request so a second DNS answer cannot silently point the connection at an internal service.</p>
+      <p>Dynamic pages need additional containment. Browser contexts should be isolated, service workers blocked, request counts bounded, and every request checked before it is allowed. Static parsing remains the safer and faster first choice because it does not execute page scripts.</p>
+      <p>Finally, extraction quality should be measured rather than assumed. A useful title and a substantial Markdown body form a simple gate, while predictable metadata helps downstream note creation remain deterministic and easy to audit.</p>
+    </article>
+  </main>
+  <footer>Copyright and unrelated links</footer>
+</body>
+</html>

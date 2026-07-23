@@ -1,0 +1,18 @@
+{
+  "name": "web-to-obsidian-extractor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/cli.mjs && node --check src/extractor.mjs && node --check src/network-policy.mjs"
+  },
+  "dependencies": {
+    "defuddle": "0.19.2",
+    "linkedom": "0.18.13",
+    "playwright": "1.61.1"
+  }
+}
