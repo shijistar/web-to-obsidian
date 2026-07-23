@@ -149,6 +149,12 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(parsed["tags"], ["web-clip"])
         self.assertEqual(note.count("\n---\n"), 1)
 
+    def test_render_note_accepts_prevalidated_extractor_payload_without_ok_flag(self):
+        validated = clip._validate_success_payload(SUCCESS)
+        note = clip.render_note(validated, created="2026-07-23T12:00:00+00:00")
+        self.assertIn("title: An Article", note)
+        self.assertIn("keywords:", note)
+
 
 class TargetAndAtomicWriteTests(unittest.TestCase):
     def _note(self, source, title="Old"):

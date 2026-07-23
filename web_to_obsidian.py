@@ -722,7 +722,7 @@ def _validate_success_payload(data: Mapping[str, object]) -> dict[str, object]:
     if isinstance(word_count, bool) or not isinstance(word_count, int) or word_count < 0:
         raise ClipError("The extractor returned incomplete or invalid article data.")
     checked["wordCount"] = word_count
-    if data.get("ok") is not True:
+    if "ok" in data and data.get("ok") is not True:
         raise _extractor_failure(data)
     source = checked["canonicalUrl"] or checked["url"]
     if not isinstance(source, str):
