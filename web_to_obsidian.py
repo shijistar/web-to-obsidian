@@ -337,8 +337,13 @@ def _contains_markdown_h1(markdown: str) -> bool:
     return False
 
 
+def _sanitized_heading_title(title: str) -> str:
+    sanitized = sanitize_markdown(title)
+    return re.sub(r"\s+", " ", sanitized).strip()
+
+
 def _managed_markdown(title: str, markdown: str) -> str:
-    cleaned_title = _normalize_text(title).strip()
+    cleaned_title = _sanitized_heading_title(title)
     cleaned_markdown = _normalize_text(markdown).rstrip("\n")
     if _contains_markdown_h1(cleaned_markdown):
         return cleaned_markdown

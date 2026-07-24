@@ -189,6 +189,21 @@ class RenderingTests(unittest.TestCase):
             note,
         )
 
+    def test_render_note_sanitizes_and_single_lines_injected_h1_title(self):
+        data = dict(
+            SUCCESS,
+            title="Bad [[vault]]\n<script>alert(1)</script>",
+            markdown="## Intro\n\nBody\n",
+        )
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+        managed = note.split("<!-- webclip:managed:start -->\n", 1)[1].split(
+            "\n<!-- webclip:managed:end -->", 1
+        )[0]
+        self.assertEqual(managed, "# Bad \\[\\[vault]]\n\n## Intro\n\nBody")
+        self.assertNotIn("[[vault]]", managed)
+        self.assertNotIn("<script>", managed)
+        self.assertNotIn("# Bad \\[\\[vault]]\n<script>", managed)
+
     def test_render_note_preserves_existing_h1_without_duplicate_insertion(self):
         note = clip.render_note(SUCCESS, created="2026-07-23T12:00:00+00:00")
         self.assertIn("<!-- webclip:managed:start -->\n# An Article\n\nBody\n", note)
