@@ -92,6 +92,8 @@ class VaultIdempotencyRegressionTests(unittest.TestCase):
         _, frontmatter, _ = note.split("---\n", 2)
         parsed = yaml.safe_load(frontmatter)
         self.assertEqual(parsed["title"], SUCCESS["title"])
+        self.assertEqual(parsed["original_url"], SUCCESS["canonicalUrl"])
+        self.assertEqual(parsed["original_host"], "example.com")
         self.assertRegex(parsed["webclip_id"], r"^sha256:[0-9a-f]{64}$")
         self.assertRegex(parsed["content_hash"], r"^sha256:[0-9a-f]{64}$")
 
@@ -131,6 +133,101 @@ class VaultIdempotencyRegressionTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), first)
             self.assertEqual(clip.write_managed_note(target, changed, refresh=True), "written")
             self.assertEqual(target.read_text(encoding="utf-8"), changed)
+
+    def test_refresh_rewrites_existing_note_when_title_changes_but_markdown_does_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "article.md"
+            first = clip.render_note(
+                dict(SUCCESS, title="Old Title", markdown="## Intro\n\nBody\n"),
+                created="2026-07-23T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, first, refresh=False), "written")
+
+            updated = clip.render_note(
+                dict(SUCCESS, title="New Title", markdown="## Intro\n\nBody\n"),
+                created="2026-07-24T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, updated, refresh=True), "written")
+
+            rewritten = target.read_text(encoding="utf-8")
+            self.assertIn("title: New Title\n", rewritten)
+            self.assertIn(
+                "<!-- webclip:managed:start -->\n# New Title\n\n## Intro\n\nBody\n",
+                rewritten,
+            )
+            self.assertIn("created: '2026-07-24T12:00:00+00:00'", rewritten)
+
+    def test_refresh_rewrites_existing_note_when_fetched_url_changes_but_markdown_does_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "article.md"
+            first = clip.render_note(SUCCESS, created="2026-07-23T12:00:00+00:00")
+            self.assertEqual(clip.write_managed_note(target, first, refresh=False), "written")
+
+            updated = clip.render_note(
+                dict(SUCCESS, url="https://example.com/from-redirect"),
+                created="2026-07-24T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, updated, refresh=True), "written")
+
+            rewritten = target.read_text(encoding="utf-8")
+            self.assertIn("fetched_url: https://example.com/from-redirect\n", rewritten)
+            self.assertIn("created: '2026-07-24T12:00:00+00:00'", rewritten)
+
+    def test_refresh_rewrites_existing_note_when_title_changes_but_markdown_has_stable_h1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "article.md"
+            first = clip.render_note(
+                dict(SUCCESS, title="Old Title", markdown="# Stable H1\n\nBody\n"),
+                created="2026-07-23T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, first, refresh=False), "written")
+
+            updated = clip.render_note(
+                dict(SUCCESS, title="New Title", markdown="# Stable H1\n\nBody\n"),
+                created="2026-07-24T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, updated, refresh=True), "written")
+
+            rewritten = target.read_text(encoding="utf-8")
+            self.assertIn("title: New Title\n", rewritten)
+            self.assertIn("<!-- webclip:managed:start -->\n# Stable H1\n\nBody\n", rewritten)
+            self.assertNotIn("# New Title\n\n# Stable H1", rewritten)
+            self.assertIn("created: '2026-07-24T12:00:00+00:00'", rewritten)
+
+    def test_refresh_preserves_manual_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "article.md"
+            first = clip.render_note(
+                dict(SUCCESS, markdown="## Intro\n\nBody\n"),
+                created="2026-07-23T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, first, refresh=False), "written")
+
+            existing = target.read_text(encoding="utf-8")
+            manual = "Personal notes\n- keep this\n"
+            target.write_text(
+                existing.replace(
+                    "<!-- webclip:manual:start -->\n<!-- webclip:manual:end -->\n",
+                    f"<!-- webclip:manual:start -->\n{manual}<!-- webclip:manual:end -->\n",
+                ),
+                encoding="utf-8",
+            )
+
+            updated = clip.render_note(
+                dict(SUCCESS, markdown="## Intro\n\nBody updated\n"),
+                created="2026-07-24T12:00:00+00:00",
+            )
+            self.assertEqual(clip.write_managed_note(target, updated, refresh=True), "written")
+
+            rewritten = target.read_text(encoding="utf-8")
+            self.assertIn(
+                f"# {SUCCESS['title']}\n\n## Intro\n\nBody updated\n",
+                rewritten,
+            )
+            self.assertIn(
+                f"<!-- webclip:manual:start -->\n{manual}<!-- webclip:manual:end -->\n",
+                rewritten,
+            )
 
 
 class SharedLockRegressionTests(unittest.TestCase):

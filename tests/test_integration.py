@@ -79,11 +79,13 @@ class ClipServiceIntegrationTests(unittest.TestCase):
             content = note.read_text(encoding="utf-8")
             frontmatter, _ = content[4:].split("\n---\n", 1)
             metadata = yaml.safe_load(frontmatter)
-            self.assertEqual(metadata["source"], ARTICLE["canonicalUrl"])
             self.assertEqual(metadata["url"], ARTICLE["canonicalUrl"])
+            self.assertEqual(metadata["original_url"], ARTICLE["canonicalUrl"])
+            self.assertEqual(metadata["original_host"], "example.com")
             self.assertEqual(metadata["keywords"], ARTICLE["keywords"])
             self.assertEqual(metadata["category"], "Inbox")
             self.assertEqual(metadata["extraction_method"], "static")
+            self.assertIn("<!-- webclip:managed:start -->\n# An Article\n\n", content)
             self.assertIn("![remote](https://cdn.example/image.png)", content)
 
             remote_content = subprocess.run(

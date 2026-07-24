@@ -293,6 +293,60 @@ def sanitize_markdown(markdown: str) -> str:
     return text.replace("[[", r"\[\[")
 
 
+def _contains_markdown_h1(markdown: str) -> bool:
+    in_fence = False
+    fence_char = ""
+    fence_length = 0
+    previous_text_line = None
+    for raw_line in _normalize_text(markdown).split("\n"):
+        if raw_line.startswith("\t"):
+            previous_text_line = None
+            continue
+
+        leading_spaces = len(raw_line) - len(raw_line.lstrip(" "))
+        content = raw_line[leading_spaces:]
+
+        if leading_spaces <= 3:
+            fence_match = re.match(r"(`{3,}|~{3,})", content)
+            if fence_match:
+                marker = fence_match.group(1)
+                if not in_fence:
+                    in_fence = True
+                    fence_char = marker[0]
+                    fence_length = len(marker)
+                elif marker[0] == fence_char and len(marker) >= fence_length:
+                    in_fence = False
+                    fence_char = ""
+                    fence_length = 0
+                previous_text_line = None
+                continue
+
+        if in_fence:
+            continue
+
+        if leading_spaces >= 4:
+            previous_text_line = None
+            continue
+
+        if re.match(r"^#(?:\s+\S|\s*$)", content):
+            return True
+        if re.match(r"^=+\s*$", content) and previous_text_line:
+            return True
+
+        previous_text_line = content if content.strip() else None
+    return False
+
+
+def _managed_markdown(title: str, markdown: str) -> str:
+    cleaned_title = _normalize_text(title).strip()
+    cleaned_markdown = _normalize_text(markdown).rstrip("\n")
+    if _contains_markdown_h1(cleaned_markdown):
+        return cleaned_markdown
+    if not cleaned_markdown:
+        return f"# {cleaned_title}"
+    return f"# {cleaned_title}\n\n{cleaned_markdown}"
+
+
 def render_note(data: Mapping[str, object], created: str | None = None) -> str:
     """Render extractor data as normalized Markdown with YAML frontmatter."""
     checked = _validate_success_payload(data)
@@ -300,27 +354,27 @@ def render_note(data: Mapping[str, object], created: str | None = None) -> str:
     source = normalize_url(str(checked["canonicalUrl"] or checked["url"]))
     fetched_url = normalize_url(str(checked["url"]))
     markdown = sanitize_markdown(str(checked["markdown"])).rstrip("\n")
+    managed_markdown = _managed_markdown(str(checked["title"]), markdown)
     metadata = {
         "title": checked["title"],
         "url": source,
-        "source": source,
-        "source_host": urlsplit(source).hostname or "",
         "author": checked["author"],
         "site": checked["site"],
-        "published": checked["published"],
-        "created": timestamp,
         "description": checked["description"],
         "keywords": checked["keywords"],
         "tags": ["web-clip"],
+        "original_url": source,
+        "original_host": urlsplit(source).hostname or "",
+        **({"fetched_url": fetched_url} if fetched_url != source else {}),
         "extraction_method": checked["method"],
         "status": "needs-review",
         "category": "Inbox",
         "word_count": checked["wordCount"],
         "webclip_id": "sha256:" + _url_hash(source),
         "content_hash": "sha256:" + _content_hash(markdown),
+        "published": checked["published"],
+        "created": timestamp,
     }
-    if fetched_url != source:
-        metadata["fetched_url"] = fetched_url
     frontmatter = yaml.safe_dump(
         metadata,
         allow_unicode=True,
@@ -330,7 +384,7 @@ def render_note(data: Mapping[str, object], created: str | None = None) -> str:
     return (
         f"---\n{frontmatter}\n---\n\n"
         "<!-- webclip:managed:start -->\n"
-        f"{markdown}\n"
+        f"{managed_markdown}\n"
         "<!-- webclip:managed:end -->\n\n"
         "<!-- webclip:manual:start -->\n"
         "<!-- webclip:manual:end -->\n"
@@ -410,7 +464,13 @@ def _source_from_note(path: Path) -> str | None:
     except (OSError, UnicodeError):
         return None
     metadata = _frontmatter_from_text(text)
-    source = metadata.get("source") if metadata is not None else None
+    source = None
+    if metadata is not None:
+        for field in ("url", "original_url", "source"):
+            candidate = metadata.get(field)
+            if isinstance(candidate, str) and candidate:
+                source = candidate
+                break
     try:
         return normalize_url(source) if isinstance(source, str) else None
     except ClipError:
@@ -537,6 +597,27 @@ def _manual_section(text: str) -> str:
     return text[start:end] if end >= 0 else ""
 
 
+def _managed_section(text: str) -> str | None:
+    start_marker = "<!-- webclip:managed:start -->\n"
+    end_marker = "<!-- webclip:managed:end -->"
+    start = text.find(start_marker)
+    if start < 0:
+        return None
+    start += len(start_marker)
+    end = text.find(end_marker, start)
+    return text[start:end] if end >= 0 else None
+
+
+def _note_semantic_state(text: str) -> tuple[dict[str, object], str] | None:
+    metadata = _frontmatter_from_text(text)
+    managed = _managed_section(text)
+    if metadata is None or managed is None:
+        return None
+    comparable_metadata = dict(metadata)
+    comparable_metadata.pop("created", None)
+    return comparable_metadata, managed
+
+
 def _with_manual_section(note: str, manual: str) -> str:
     marker = "<!-- webclip:manual:start -->\n"
     start = note.find(marker)
@@ -558,13 +639,15 @@ def write_managed_note(target: Path, content: str, *, refresh: bool) -> str:
         existing = target.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise ClipError("Could not read the existing clipped note.") from exc
-    old_meta = _frontmatter_from_text(existing)
-    new_meta = _frontmatter_from_text(content)
-    if old_meta is None or new_meta is None:
+    old_state = _note_semantic_state(existing)
+    new_state = _note_semantic_state(content)
+    if old_state is None or new_state is None:
         raise ClipError("The existing clipped note has invalid managed metadata.")
+    old_meta, _ = old_state
+    new_meta, _ = new_state
     if old_meta.get("webclip_id") != new_meta.get("webclip_id"):
         raise ClipError("Refusing to replace a note managed for a different URL.")
-    if old_meta.get("content_hash") == new_meta.get("content_hash"):
+    if old_state == new_state:
         return "unchanged"
     if not refresh:
         raise ClipError("The saved page changed; rerun with --refresh to update it.")
