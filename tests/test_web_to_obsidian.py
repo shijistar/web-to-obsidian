@@ -139,14 +139,39 @@ class RenderingTests(unittest.TestCase):
         self.assertTrue(note.startswith("---\n"))
         frontmatter, _ = note[4:].split("\n---\n", 1)
         parsed = yaml.safe_load(frontmatter)
+        self.assertEqual(
+            list(parsed),
+            [
+                "title",
+                "url",
+                "author",
+                "site",
+                "description",
+                "keywords",
+                "tags",
+                "original_url",
+                "original_host",
+                "extraction_method",
+                "status",
+                "category",
+                "word_count",
+                "webclip_id",
+                "content_hash",
+                "published",
+                "created",
+            ],
+        )
         self.assertEqual(parsed["title"], data["title"])
-        self.assertEqual(parsed["source"], "https://example.com/article")
         self.assertEqual(parsed["url"], "https://example.com/article")
+        self.assertEqual(parsed["original_url"], "https://example.com/article")
+        self.assertEqual(parsed["original_host"], "example.com")
         self.assertEqual(parsed["keywords"], ["security", "clipping"])
         self.assertEqual(parsed["category"], "Inbox")
         self.assertEqual(parsed["created"], "2026-07-23T12:00:00+00:00")
         self.assertEqual(parsed["extraction_method"], "readability")
         self.assertEqual(parsed["tags"], ["web-clip"])
+        self.assertNotIn("source", parsed)
+        self.assertNotIn("source_host", parsed)
         self.assertEqual(note.count("\n---\n"), 1)
 
     def test_render_note_accepts_prevalidated_extractor_payload_without_ok_flag(self):
@@ -154,6 +179,87 @@ class RenderingTests(unittest.TestCase):
         note = clip.render_note(validated, created="2026-07-23T12:00:00+00:00")
         self.assertIn("title: An Article", note)
         self.assertIn("keywords:", note)
+        self.assertEqual(note.count("\n# An Article\n\n"), 1)
+
+    def test_render_note_injects_h1_when_markdown_has_no_h1(self):
+        data = dict(SUCCESS, markdown="## Intro\n\nBody\n")
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+        self.assertIn(
+            "<!-- webclip:managed:start -->\n# An Article\n\n## Intro\n\nBody\n",
+            note,
+        )
+
+    def test_render_note_sanitizes_and_single_lines_injected_h1_title(self):
+        data = dict(
+            SUCCESS,
+            title="Bad [[vault]]\n<script>alert(1)</script>",
+            markdown="## Intro\n\nBody\n",
+        )
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+        managed = note.split("<!-- webclip:managed:start -->\n", 1)[1].split(
+            "\n<!-- webclip:managed:end -->", 1
+        )[0]
+        self.assertEqual(managed, "# Bad \\[\\[vault]]\n\n## Intro\n\nBody")
+        self.assertNotIn("[[vault]]", managed)
+        self.assertNotIn("<script>", managed)
+        self.assertNotIn("# Bad \\[\\[vault]]\n<script>", managed)
+
+    def test_render_note_preserves_existing_h1_without_duplicate_insertion(self):
+        note = clip.render_note(SUCCESS, created="2026-07-23T12:00:00+00:00")
+        self.assertIn("<!-- webclip:managed:start -->\n# An Article\n\nBody\n", note)
+        self.assertEqual(note.count("\n# An Article\n\n"), 1)
+
+    def test_render_note_preserves_setext_h1_without_duplicate_insertion(self):
+        data = dict(SUCCESS, markdown="An Article\n===\n\nBody\n")
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+        self.assertIn(
+            "<!-- webclip:managed:start -->\nAn Article\n===\n\nBody\n",
+            note,
+        )
+        self.assertEqual(note.count("\n# An Article\n\n"), 0)
+
+    def test_render_note_ignores_indented_code_when_deciding_to_inject_h1(self):
+        data = dict(SUCCESS, markdown="    # not a heading\n\nBody\n")
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+        self.assertIn(
+            "<!-- webclip:managed:start -->\n# An Article\n\n    # not a heading\n\nBody\n",
+            note,
+        )
+
+    def test_render_note_preserves_fetched_url_when_request_url_differs(self):
+        data = dict(
+            SUCCESS,
+            canonicalUrl="https://example.com/article",
+            url="https://example.com/from-redirect",
+        )
+        note = clip.render_note(data, created="2026-07-23T12:00:00+00:00")
+
+        frontmatter, _ = note[4:].split("\n---\n", 1)
+        parsed = yaml.safe_load(frontmatter)
+        self.assertEqual(
+            list(parsed),
+            [
+                "title",
+                "url",
+                "author",
+                "site",
+                "description",
+                "keywords",
+                "tags",
+                "original_url",
+                "original_host",
+                "fetched_url",
+                "extraction_method",
+                "status",
+                "category",
+                "word_count",
+                "webclip_id",
+                "content_hash",
+                "published",
+                "created",
+            ],
+        )
+        self.assertEqual(parsed["fetched_url"], "https://example.com/from-redirect")
 
 
 class TargetAndAtomicWriteTests(unittest.TestCase):
@@ -194,6 +300,48 @@ class TargetAndAtomicWriteTests(unittest.TestCase):
             chosen = clip.choose_target(
                 destination,
                 "Renamed Article",
+                "https://example.com/article",
+                capture_date="2026-07-23",
+            )
+            self.assertEqual(chosen, existing)
+
+    def test_choose_target_accepts_existing_notes_with_original_url_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp)
+            existing = destination / "2026-07-22-An Article.md"
+            existing.write_text(
+                "---\n"
+                "title: An Article\n"
+                "original_url: https://example.com/article\n"
+                "---\n\n"
+                "# An Article\n",
+                encoding="utf-8",
+            )
+
+            chosen = clip.choose_target(
+                destination,
+                "An Article",
+                "https://example.com/article",
+                capture_date="2026-07-23",
+            )
+            self.assertEqual(chosen, existing)
+
+    def test_choose_target_accepts_existing_notes_with_legacy_source_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp)
+            existing = destination / "2026-07-22-An Article.md"
+            existing.write_text(
+                "---\n"
+                "title: An Article\n"
+                "source: https://example.com/article\n"
+                "---\n\n"
+                "# An Article\n",
+                encoding="utf-8",
+            )
+
+            chosen = clip.choose_target(
+                destination,
+                "An Article",
                 "https://example.com/article",
                 capture_date="2026-07-23",
             )

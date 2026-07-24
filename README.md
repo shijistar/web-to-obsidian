@@ -97,11 +97,22 @@ are never forwarded to the untrusted extractor process.
   excessive UTF-8 length.
 - Writes use a same-directory temporary file, file `fsync`, `os.replace`, and
   parent-directory `fsync` where supported. Symlink targets are rejected.
-- Frontmatter is serialized with `title`, `url`, `source`, `source_host`,
-  `author`, `site`, `published`, `created`, `description`, `keywords`, `tags`,
-  `category`, `word_count`, `webclip_id`, and `content_hash`.
+- Frontmatter is serialized with `title`, `url`, `author`, `site`,
+  `description`, `keywords`, `tags`, `original_url`, `original_host`,
+  optional `fetched_url` (when the request URL differs from the canonical
+  article URL), `extraction_method`, `status`, `category`, `word_count`,
+  `webclip_id`, `content_hash`, `published`, and `created`.
+- Managed note content preserves an extracted Markdown H1 when present and
+  injects `# <title>` only when the extracted article has no Markdown H1.
+- Existing notes are matched by normalized `url`, `original_url`, or legacy
+  `source` frontmatter so older notes remain refreshable without duplication.
+  That compatibility is recognition-only; metadata is rewritten to the new
+  field names when a note is refreshed, not by a background migration.
 - Same source + same content is a no-op. Changed content is rejected unless
   `--refresh` is explicit. Refresh preserves text inside the manual boundary.
+- Frontmatter is fully managed output. User-added frontmatter keys are not part
+  of the preserved manual region and may trigger a refresh requirement or be
+  overwritten on refresh.
 - Title collisions from different sources receive a deterministic URL hash.
 
 ## Git safety
